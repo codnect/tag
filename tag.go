@@ -15,9 +15,9 @@
 package tag
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 const DefaultOptionName = "value"
@@ -34,6 +34,11 @@ func Parse[T Tagger](raw string, target T) error {
 		return nil
 	}
 
+	rTargetVal := reflect.ValueOf(target)
+	if rTargetVal.Kind() != reflect.Ptr || rTargetVal.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("tag: target must be pointer to struct, got %T", target)
+	}
+
 	for raw != "" {
 		skip := skipSpaces(raw)
 		raw = raw[skip:]
@@ -47,183 +52,140 @@ func Parse[T Tagger](raw string, target T) error {
 			i++
 		}
 
-		if i == 0 || i+1 >= len(raw) || raw[i] != ':' {
-			return fmt.Errorf("tag: invalid tag format, expect ':' but got %c", raw[i])
+		if i == 0 {
+			return fmt.Errorf("tag: empty tag name in '%s'", raw)
 		}
 
-		tagName := raw[:i]
+		if i+1 >= len(raw) {
+			return fmt.Errorf("tag: missing tag value for tag '%s'", raw[:i])
+		}
+
+		if raw[i] != ':' {
+			return fmt.Errorf("tag: expected ':' after tag name %q in %q", raw[:i], raw)
+		}
+
+		name := raw[:i]
 		raw = raw[i+1:]
 
-		tagValue, consumed, err := scanString(raw, '"')
+		value, valueLen, err := scanString(raw, '"')
 		if err != nil {
 			return fmt.Errorf("tag: invalid tag value: %s", err)
 		}
 
-		if target.Tag() == tagName {
-			v := reflect.ValueOf(target)
-			if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
-				return fmt.Errorf("tag: target must be pointer to struct, got %T", target)
+		if target.Tag() == name {
+			skip = skipSpaces(value)
+			opts := value[skip:]
+			if len(opts) == 0 {
+				return fmt.Errorf("tag: empty tag value for tag '%s'", name)
 			}
 
-			if err = parseOptions(tagValue, v); err != nil {
-				return fmt.Errorf("tag: failed to parse to options: %s", err)
+			if err = parseOptions(value, rTargetVal); err != nil {
+				return fmt.Errorf("tag: failed to parse '%s' options %q: %w", name, value, err)
 			}
 
 			return nil
 		}
 
-		raw = raw[consumed:]
+		raw = raw[valueLen:]
 	}
 
 	return nil
 }
 
 // parseOptions parses the options and sets the struct fields accordingly.
-func parseOptions(options string, structPtr reflect.Value) error {
-	optionIndex := 0
+func parseOptions(opts string, structPtr reflect.Value) error {
+	val, valLen, err := scanPosOptValue(opts)
+	if err != nil {
+		return err
+	}
 
-	for options != "" {
-		skip := skipSpaces(options)
-		options = options[skip:]
-		if len(options) == 0 {
-			break
+	if valLen <= 0 {
+		return fmt.Errorf("missing positional option value")
+	}
+
+	rFieldVal, exists := findStructField(DefaultOptionName, structPtr)
+	if exists {
+		if err = setValue(rFieldVal, val); err != nil {
+			return err
+		}
+	}
+
+	opts = opts[valLen:]
+	skip := skipSpaces(opts)
+	opts = opts[skip:]
+
+	if len(opts) == 0 {
+		return nil
+	}
+
+	if opts[0] != ',' {
+		return fmt.Errorf("missing ',' after positional option value")
+	} else {
+		opts = opts[1:]
+	}
+
+	for len(opts) != 0 {
+		val, valLen, err = scanIdentifier(opts)
+		if err != nil {
+			return err
 		}
 
-		var (
-			name string
-			cons int
-		)
+		opt := val
+		opts = opts[valLen:]
+		skip = skipSpaces(opts)
+		opts = opts[skip:]
 
-		if optionIndex == 0 && options[0] == '\'' {
-			item, length, err := scanString(options, '\'')
+		if len(opts) >= 1 && opts[0] == '=' {
+			opts = opts[1:]
+			skip = skipSpaces(opts)
+			opts = opts[skip:]
+
+			if len(opts) == 0 {
+				return fmt.Errorf("missing value for option %q", opt)
+			}
+
+			val, valLen, err = scanOptValue(opts)
 			if err != nil {
 				return err
 			}
-			if length == 0 {
-				return errors.New("tag: empty quoted positional option")
+
+			if valLen <= 0 {
+				return fmt.Errorf("missing value for option %q", opt)
 			}
 
-			name = item
-			cons = length
+			if err = setOption(opt, val, structPtr); err != nil {
+				return err
+			}
 
-			rest := options[cons:]
-			restSkip := skipSpaces(rest)
-			options = rest[restSkip:]
+			opts = opts[valLen:]
+		} else if len(opts) == 0 {
+			if err = setFlagOption(opt, structPtr); err != nil {
+				return err
+			}
+
+			break
+		}
+
+		skip = skipSpaces(opts)
+		opts = opts[skip:]
+
+		if len(opts) == 0 {
+			break
+		}
+
+		if opts[0] != ',' {
+			return fmt.Errorf("missing comma after option %q", opt)
 		} else {
-			i := 0
-			for i < len(options) && options[i] > ' ' && options[i] != '=' && options[i] != ',' && options[i] != 0x7f {
-				i++
-			}
-
-			if i == 0 {
-				ch := byte('?')
-				if len(options) > 0 {
-					ch = options[0]
-				}
-				return fmt.Errorf("tag: invalid option format, expected flag or key, got %q", ch)
-			}
-
-			name = options[:i]
-			rest := options[i:]
-			restSkip := skipSpaces(rest)
-			options = rest[restSkip:]
-		}
-
-		if len(options) == 0 {
-			if err := setFlagOption(optionIndex, name, structPtr); err != nil {
-				return err
-			}
-
-			break
-		}
-
-		switch options[0] {
-		case ',':
-			if err := setFlagOption(optionIndex, name, structPtr); err != nil {
-				return err
-			}
-			options = options[1:]
-			optionIndex++
-			continue
-
-		case '=':
-			options = options[1:]
-			skip = skipSpaces(options)
-			options = options[skip:]
-
-			fieldVal, fieldExists := findStructField(name, structPtr)
-
-			var valueType reflect.Type
-			if fieldExists {
-				valueType = fieldVal.Type()
-			} else {
-				inferred, err := inferType(options)
-				if err != nil {
-					return err
-				}
-				valueType = inferred
-			}
-
-			rawValue, length, err := scanValue(valueType, options)
-			if err != nil {
-				return err
-			}
-
-			if fieldExists {
-				if err = setValue(fieldVal, rawValue); err != nil {
-					return err
-				}
-			}
-
-			options = options[length:]
-			skip = skipSpaces(options)
-			options = options[skip:]
-
-			if len(options) == 0 {
-				break
-			}
-
-			if options[0] != ',' {
-				return fmt.Errorf("tag: expected ',' after option %q", name)
-			}
-
-			options = options[1:]
-			optionIndex++
-			continue
-
-		default:
-			return fmt.Errorf("tag: expected '=' or ',' after option %q", name)
+			opts = opts[1:]
 		}
 	}
 
 	return nil
 }
 
-// setFlagOption sets a boolean flag option or positional value in the struct.
-func setFlagOption(index int, name string, structPtr reflect.Value) error {
-	fieldName := name
-	if index == 0 {
-		fieldName = DefaultOptionName
-	}
-
-	fieldVal, exists := findStructField(fieldName, structPtr)
-	if !exists {
-		return nil
-	}
-
-	if fieldName == DefaultOptionName {
-		return setValue(fieldVal, name)
-	}
-
-	if fieldVal.Kind() != reflect.Bool {
-		return fmt.Errorf("tag: invalid flag option %q: target field is %s, want bool", fieldName, fieldVal.Kind())
-	}
-
-	return setValue(fieldVal, "true")
-}
-
 // findStructField finds the struct field corresponding to the option name.
-func findStructField(optionName string, structPtr reflect.Value) (reflect.Value, bool) {
+func findStructField(optName string, structPtr reflect.Value) (reflect.Value, bool) {
+	optName = strings.ToLower(optName)
 	structType := structPtr.Type().Elem()
 
 	for i := 0; i < structType.NumField(); i++ {
@@ -237,7 +199,8 @@ func findStructField(optionName string, structPtr reflect.Value) (reflect.Value,
 			continue
 		}
 
-		if optionTag != optionName {
+		optionTag = strings.ToLower(optionTag)
+		if optionTag != optName {
 			continue
 		}
 
@@ -250,4 +213,36 @@ func findStructField(optionName string, structPtr reflect.Value) (reflect.Value,
 	}
 
 	return reflect.Value{}, false
+}
+
+// setFlagOption sets a boolean flag option in the struct.
+func setFlagOption(name string, structPtr reflect.Value) error {
+	rFieldVal, exists := findStructField(name, structPtr)
+	if !exists {
+		return nil
+	}
+
+	if rFieldVal.Kind() != reflect.Bool {
+		return fmt.Errorf("invalid type for flag option %q: want bool", name)
+	}
+
+	if err := setValue(rFieldVal, "true"); err != nil {
+		return fmt.Errorf("failed to set flag option %q: %w", name, err)
+	}
+
+	return nil
+}
+
+// setOption sets an option with a value in the struct.
+func setOption(name string, value string, structPtr reflect.Value) error {
+	rFieldVal, exists := findStructField(name, structPtr)
+	if !exists {
+		return nil
+	}
+
+	if err := setValue(rFieldVal, value); err != nil {
+		return fmt.Errorf("failed to set option %q: %w", name, err)
+	}
+
+	return nil
 }

@@ -24,9 +24,9 @@ This forces every project to repeat the same work — splitting strings, handlin
 This leads to duplicated, bug-prone, and hard-to-maintain code across multiple projects.
 
 Tag provides a single, reusable mechanism that:
-•	Parses tag values safely
-•	Populates fields automatically
-•	Supports flags, lists, maps, defaults, and typed values
+*	Parses tag values safely
+*	Populates fields automatically
+*	Supports flags, lists, maps, defaults, and typed values
 
 You define the tag structure once — the library handles the rest.
 
@@ -36,9 +36,9 @@ You define a struct representing the options of a tag:
 
 ```go
 type PropTag struct {
-Key      string `option:"value"`
-Optional bool   `option:"optional"`
-Default  any    `option:"default"`
+    Key      string `option:"value"`
+    Optional bool   `option:"optional"`
+    Default  any    `option:"default"`
 }
 
 // Tag returns the name used in struct fields like `prop:"..."`.

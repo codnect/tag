@@ -36,6 +36,40 @@ func skipSpaces(val string) int {
 	return i
 }
 
+// scanPosOptValue scans a positional option value from the given string.
+func scanPosOptValue(val string) (string, int, error) {
+	if len(val) > 1 && val[0] != '\'' && val[0] != '[' && val[0] != '{' {
+		return scanIdentifier(val)
+	}
+
+	inferred, err := inferType(val)
+	if err != nil {
+		return "", -1, err
+	}
+
+	return scanValue(inferred, val)
+}
+
+// scanOptValue scans an option value from the given string.
+func scanOptValue(val string) (string, int, error) {
+	rType, err := inferType(val)
+	if err != nil {
+		return "", -1, fmt.Errorf("unsupported value type %q: %v", val, err)
+	}
+
+	return scanValue(rType, val)
+}
+
+// scanIdentifier scans an identifier from the given string.
+func scanIdentifier(val string) (string, int, error) {
+	i := 0
+	for i < len(val) && val[i] > ' ' && val[i] != '=' && val[i] != ',' && val[i] != 0x7f {
+		i++
+	}
+
+	return val[:i], i, nil
+}
+
 // setValue sets the reflect.Value from the given string.
 func setValue(rVal reflect.Value, val string) error {
 	switch rVal.Kind() {
@@ -74,29 +108,29 @@ func setScalarVal(rVal reflect.Value, scalarVal string) error {
 	case reflect.Bool:
 		b, err := strconv.ParseBool(scalarVal)
 		if err != nil {
-			return fmt.Errorf("invalid bool value %q: %w", scalarVal, err)
+			return fmt.Errorf("invalid bool value %q", scalarVal)
 		}
 		rVal.SetBool(b)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		i, err := strconv.ParseInt(scalarVal, 10, rVal.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("invalid int value %q: %w", scalarVal, err)
+			return fmt.Errorf("invalid int value %q", scalarVal)
 		}
 		rVal.SetInt(i)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		u, err := strconv.ParseUint(scalarVal, 10, rVal.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("invalid uint value %q: %w", scalarVal, err)
+			return fmt.Errorf("invalid unsigned int value %q", scalarVal)
 		}
 		rVal.SetUint(u)
 	case reflect.Float32, reflect.Float64:
 		f, err := strconv.ParseFloat(scalarVal, rVal.Type().Bits())
 		if err != nil {
-			return fmt.Errorf("invalid float value %q: %w", scalarVal, err)
+			return fmt.Errorf("invalid float value %q", scalarVal)
 		}
 		rVal.SetFloat(f)
 	default:
-		return fmt.Errorf("unsupported field type: %s", rVal.Type().String())
+		return fmt.Errorf("unsupported field type: %q", rVal.Type().String())
 	}
 
 	return nil
@@ -400,7 +434,7 @@ func inferType(val string) (reflect.Type, error) {
 		return reflect.TypeFor[float64](), nil
 	}
 
-	return nil, fmt.Errorf("cannot infer type from value %q", token)
+	return reflect.TypeFor[string](), nil
 }
 
 // scanValue scans a value of the given type from the string.
@@ -435,7 +469,7 @@ func scanValue(typ reflect.Type, val string) (string, int, error) {
 // scanString scans a string literal from the given string.
 func scanString(val string, quote byte) (string, int, error) {
 	if len(val) == 0 || val[0] != quote {
-		return "", -1, fmt.Errorf("string must start with %c", quote)
+		return "", -1, fmt.Errorf("must start with %c", quote)
 	}
 
 	i := 1
@@ -447,7 +481,7 @@ func scanString(val string, quote byte) (string, int, error) {
 	}
 
 	if i >= len(val) {
-		return "", -1, fmt.Errorf("unterminated string, missing closing %c", quote)
+		return "", -1, fmt.Errorf("must end with %c", quote)
 	}
 
 	item := val[1:i]
