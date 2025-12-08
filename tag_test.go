@@ -124,6 +124,12 @@ func TestParse(t *testing.T) {
 			wantErr:   errors.New(`tag: expected ':' after tag name "test" in "test \"value\""`),
 		},
 		{
+			name:      "missing colon after tag name with space before value",
+			rawTags:   `test:"value,,"`,
+			tagStruct: &TestTag[any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "value,,": missing option key`),
+		},
+		{
 			name:      "missing comma after positional option",
 			rawTags:   `test:"any int=1141"`,
 			tagStruct: &TestTag[any]{},
@@ -174,6 +180,15 @@ func TestParse(t *testing.T) {
 		{
 			name:      "string positional option",
 			rawTags:   `test:"any"`,
+			tagStruct: &TestTag[string]{},
+			wantErr:   nil,
+			wantTagStruct: &TestTag[string]{
+				Value: "any",
+			},
+		},
+		{
+			name:      "multiple tag",
+			rawTags:   `any:"value" test:"any"`,
 			tagStruct: &TestTag[string]{},
 			wantErr:   nil,
 			wantTagStruct: &TestTag[string]{

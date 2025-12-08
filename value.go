@@ -39,7 +39,8 @@ func skipSpaces(val string) int {
 // scanPosOptValue scans a positional option value from the given string.
 func scanPosOptValue(val string) (string, int, error) {
 	if len(val) > 1 && val[0] != '\'' && val[0] != '[' && val[0] != '{' {
-		return scanIdentifier(val)
+		ident, identLen := scanIdentifier(val)
+		return ident, identLen, nil
 	}
 
 	inferred, err := inferType(val)
@@ -61,13 +62,13 @@ func scanOptValue(val string) (string, int, error) {
 }
 
 // scanIdentifier scans an identifier from the given string.
-func scanIdentifier(val string) (string, int, error) {
+func scanIdentifier(val string) (string, int) {
 	i := 0
 	for i < len(val) && val[i] > ' ' && val[i] != '=' && val[i] != ',' && val[i] != 0x7f {
 		i++
 	}
 
-	return val[:i], i, nil
+	return val[:i], i
 }
 
 // setValue sets the reflect.Value from the given string.

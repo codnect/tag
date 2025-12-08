@@ -125,9 +125,10 @@ func parseOptions(opts string, structPtr reflect.Value) error {
 	}
 
 	for len(opts) != 0 {
-		val, valLen, err = scanIdentifier(opts)
-		if err != nil {
-			return err
+		val, valLen = scanIdentifier(opts)
+
+		if valLen == 0 {
+			return fmt.Errorf("missing option key")
 		}
 
 		opt := val
@@ -147,10 +148,6 @@ func parseOptions(opts string, structPtr reflect.Value) error {
 			val, valLen, err = scanOptValue(opts)
 			if err != nil {
 				return err
-			}
-
-			if valLen <= 0 {
-				return fmt.Errorf("missing value for option %q", opt)
 			}
 
 			if err = setOption(opt, val, structPtr); err != nil {
@@ -205,10 +202,6 @@ func findStructField(optName string, structPtr reflect.Value) (reflect.Value, bo
 		}
 
 		fieldVal := structPtr.Elem().Field(i)
-		if !fieldVal.CanSet() {
-			continue
-		}
-
 		return fieldVal, true
 	}
 
@@ -226,11 +219,7 @@ func setFlagOption(name string, structPtr reflect.Value) error {
 		return fmt.Errorf("invalid type for flag option %q: want bool", name)
 	}
 
-	if err := setValue(rFieldVal, "true"); err != nil {
-		return fmt.Errorf("failed to set flag option %q: %w", name, err)
-	}
-
-	return nil
+	return setOption(name, "true", structPtr)
 }
 
 // setOption sets an option with a value in the struct.
