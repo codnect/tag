@@ -17,9 +17,8 @@ package tag
 import (
 	"errors"
 	"fmt"
-	"testing"
-
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 type CustomType struct {
@@ -620,19 +619,13 @@ func TestParse(t *testing.T) {
 			name:      "invalid slice positional option missing closing bracket",
 			rawTags:   `test:"[11,41"`,
 			tagStruct: &TestTag[[]int]{},
-			wantErr:   errors.New(`tag: failed to parse 'test' options "[11,41": unterminated slice, missing closing ']'`),
+			wantErr:   errors.New(`tag: failed to parse 'test' options "[11,41": unterminated value, missing closing ']'`),
 		},
 		{
 			name:      "invalid map positional option missing opening brace",
 			rawTags:   `test:"'key':'val'}"`,
 			tagStruct: &TestTag[map[string]any]{},
 			wantErr:   errors.New(`tag: failed to parse 'test' options "'key':'val'}": expected { at the beginning of map value 'key'`),
-		},
-		{
-			name:      "invalid map positional option missing closing brace",
-			rawTags:   `test:"{'key':'val'"`,
-			tagStruct: &TestTag[map[string]any]{},
-			wantErr:   errors.New(`tag: failed to parse 'test' options "{'key':'val'": unterminated map, missing closing '}'`),
 		},
 		{
 			name:      "full options",
@@ -659,7 +652,7 @@ func TestParse(t *testing.T) {
 			name:      "slice option with missing opening bracket",
 			rawTags:   `test:"any,slice=['a','b'"`,
 			tagStruct: &TestTag[any]{},
-			wantErr:   errors.New(`tag: failed to parse 'test' options "any,slice=['a','b'": unterminated slice, missing closing ']'`),
+			wantErr:   errors.New(`tag: failed to parse 'test' options "any,slice=['a','b'": unterminated value, missing closing ']'`),
 		},
 		{
 			name:      "nested slice positional option",
@@ -709,7 +702,110 @@ func TestParse(t *testing.T) {
 			name:      "invalid struct option",
 			rawTags:   `test:"any,struct='string':'value','int':1141,'float':11.41,'bool':true,'slice':['a','b'],'map':{'key':'val'}}"`,
 			tagStruct: &TestTag[any]{},
-			wantErr:   errors.New(`tag: failed to parse 'test' options "any,struct='string':'value','int':1141,'float':11.41,'bool':true,'slice':['a','b'],'map':{'key':'val'}}": failed to set option "struct": expected {, but got 'string'`),
+			wantErr:   errors.New(`tag: failed to parse 'test' options "any,struct='string':'value','int':1141,'float':11.41,'bool':true,'slice':['a','b'],'map':{'key':'val'}}": value must start with '{'`),
+		},
+		{
+			name:      "invalid bool option with non-bool value",
+			rawTags:   `test:"any,bool=non-bool"`,
+			tagStruct: &TestTag[any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "any,bool=non-bool": invalid bool value "non-bool"`),
+		},
+		{
+			name:      "invalid bool option with empty value",
+			rawTags:   `test:"any,bool=[]"`,
+			tagStruct: &TestTag[any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "any,bool=[]": invalid bool value`),
+		},
+		{
+			name:      "invalid integer option value",
+			rawTags:   `test:"any,int=non-int"`,
+			tagStruct: &TestTag[any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "any,int=non-int": invalid integer value`),
+		},
+		{
+			name:      "invalid float option value",
+			rawTags:   `test:"any,float=non-float"`,
+			tagStruct: &TestTag[any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "any,float=non-float": invalid float value`),
+		},
+		{
+			name:    "string option with escape characters",
+			rawTags: `test:"any,string='line1\nline2\tTabbed'"`,
+			tagStruct: &TestTag[any]{
+				String: "line1\nline2\tTabbed",
+			},
+		},
+		{
+			name:      "unsupported field type",
+			rawTags:   `test:"any"`,
+			wantErr:   errors.New(`tag: failed to parse 'test' options "any": unsupported field type: "chan bool"`),
+			tagStruct: &TestTag[chan bool]{},
+		},
+		{
+			name:      "empty positional option value",
+			rawTags:   `test:","`,
+			tagStruct: &TestTag[any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options ",": cannot infer type from empty value`),
+		},
+		{
+			name:      "invalid map positional option with missing colon separator",
+			rawTags:   `test:"{'key'}"`,
+			tagStruct: &TestTag[map[string]any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{'key'}": invalid map item format, missing ':' separator`),
+		},
+		{
+			name:      "invalid custom type with missing colon separator",
+			rawTags:   `test:"{'key'}"`,
+			tagStruct: &TestTag[CustomType]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{'key'}": invalid struct item format, missing ':' separator`),
+		},
+		{
+			name:      "invalid custom type positional option missing opening brace",
+			rawTags:   `test:"'key':'val'}"`,
+			tagStruct: &TestTag[CustomType]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "'key':'val'}": expected { at the beginning of value 'key'`),
+		},
+		{
+			name:      "expected , separator in slice",
+			rawTags:   `test:"['a' 'b']"`,
+			tagStruct: &TestTag[[]string]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "['a' 'b']": expected ',' between slice items in ''b']'`),
+		},
+		{
+			name:      "expected , separator in map",
+			rawTags:   `test:"{'key1':'val1' 'key2':'val2'}"`,
+			tagStruct: &TestTag[map[string]string]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{'key1':'val1' 'key2':'val2'}": expected ',' between map items in ''key2':'val2'}'`),
+		},
+		{
+			name:      "expected , separator in custom type properties",
+			rawTags:   `test:"{'string':'value' 'int':1141}"`,
+			tagStruct: &TestTag[CustomType]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{'string':'value' 'int':1141}": expected ',' between fields in ''int':1141}'`),
+		},
+		{
+			name:      "invalid map positional option with invalid key",
+			rawTags:   `test:"{: 'val'}"`,
+			tagStruct: &TestTag[map[string]string]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{: 'val'}": invalid key: must start with '`),
+		},
+		{
+			name:      "invalid map positional option with invalid value",
+			rawTags:   `test:"{'key':}"`,
+			tagStruct: &TestTag[map[string]any]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{'key':}": invalid value: must start with '`),
+		},
+		{
+			name:      "invalid custom type positional option with invalid field key",
+			rawTags:   `test:"{: 'value'}"`,
+			tagStruct: &TestTag[CustomType]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{: 'value'}": invalid field name: must start with '`),
+		},
+		{
+			name:      "invalid custom type positional option with invalid field value",
+			rawTags:   `test:"{'string':}"`,
+			tagStruct: &TestTag[CustomType]{},
+			wantErr:   errors.New(`tag: failed to parse 'test' options "{'string':}": invalid field value: must start with '`),
 		},
 	}
 

@@ -52,10 +52,19 @@ func scanPosOptValue(val string) (string, int, error) {
 }
 
 // scanOptValue scans an option value from the given string.
-func scanOptValue(val string) (string, int, error) {
-	rType, err := inferType(val)
-	if err != nil {
-		return "", -1, fmt.Errorf("unsupported value type %q: %v", val, err)
+func scanOptValue(optName, val string, structPtr reflect.Value) (string, int, error) {
+	rVal, exists := findStructField(optName, structPtr)
+
+	var rType reflect.Type
+	if exists {
+		rType = rVal.Type()
+	} else {
+		inferTyp, err := inferType(val)
+		if err != nil {
+			return "", -1, fmt.Errorf("unsupported value type %q: %v", val, err)
+		}
+
+		rType = inferTyp
 	}
 
 	return scanValue(rType, val)
@@ -142,9 +151,6 @@ func setSliceFromLiteral(rSliceVal reflect.Value, raw string) error {
 	n := skipSpaces(raw)
 
 	raw = raw[n:]
-	if raw == "" {
-		return fmt.Errorf("invalid slice value '%s'", raw)
-	}
 
 	if raw[0] != '[' {
 		return fmt.Errorf("expected [ at the beginning of slice value '%s'", raw)
@@ -157,15 +163,7 @@ func setSliceFromLiteral(rSliceVal reflect.Value, raw string) error {
 		n = skipSpaces(raw)
 		raw = raw[n:]
 
-		if len(raw) == 0 {
-			return fmt.Errorf("unterminated slice value, missing closing ']'")
-		}
-
-		if len(raw) == 1 {
-			if raw[0] != ']' {
-				return fmt.Errorf("unterminated slice value, missing closing ']'")
-			}
-
+		if len(raw) == 1 || raw[0] == ']' {
 			break
 		}
 
@@ -194,13 +192,11 @@ func setSliceFromLiteral(rSliceVal reflect.Value, raw string) error {
 		n = skipSpaces(raw)
 		raw = raw[n:]
 
-		if raw == "" {
-			return fmt.Errorf("unterminated slice value '%s'", raw)
-		}
-
 		if raw[0] == ',' {
 			raw = raw[1:]
 			continue
+		} else if raw[0] != ']' {
+			return fmt.Errorf("expected ',' between slice items in '%s'", raw)
 		}
 
 	}
@@ -213,9 +209,6 @@ func setMapFromLiteral(rMapVal reflect.Value, raw string) error {
 	n := skipSpaces(raw)
 
 	raw = raw[n:]
-	if raw == "" {
-		return fmt.Errorf("invalid map value '%s'", raw)
-	}
 
 	if raw[0] != '{' {
 		return fmt.Errorf("expected { at the beginning of map value '%s'", raw)
@@ -230,22 +223,14 @@ func setMapFromLiteral(rMapVal reflect.Value, raw string) error {
 		n = skipSpaces(raw)
 		raw = raw[n:]
 
-		if len(raw) == 0 {
-			return fmt.Errorf("unterminated map value, missing closing '}'")
-		}
-
-		if len(raw) == 1 {
-			if raw[0] != '}' {
-				return fmt.Errorf("unterminated map value, missing closing '}'")
-			}
-
+		if len(raw) == 1 || raw[0] == '}' {
 			break
 		}
 
 		rKeyVal := reflect.New(keyType).Elem()
 		keyStr, l, scanErr := scanValue(keyType, raw)
 		if scanErr != nil {
-			return scanErr
+			return fmt.Errorf("invalid key: %w", scanErr)
 		}
 
 		if err := setValue(rKeyVal, keyStr); err != nil {
@@ -274,7 +259,7 @@ func setMapFromLiteral(rMapVal reflect.Value, raw string) error {
 
 		valStr, vLen, err := scanValue(et, raw)
 		if err != nil {
-			return err
+			return fmt.Errorf("invalid value: %w", err)
 		}
 
 		rElemVal := reflect.New(et).Elem()
@@ -288,13 +273,11 @@ func setMapFromLiteral(rMapVal reflect.Value, raw string) error {
 		n = skipSpaces(raw)
 		raw = raw[n:]
 
-		if raw == "" {
-			return fmt.Errorf("unterminated map value '%s'", raw)
-		}
-
 		if raw[0] == ',' {
 			raw = raw[1:]
 			continue
+		} else if raw[0] != '}' {
+			return fmt.Errorf("expected ',' between map items in '%s'", raw)
 		}
 	}
 
@@ -304,14 +287,10 @@ func setMapFromLiteral(rMapVal reflect.Value, raw string) error {
 // setStructFromLiteral sets the struct fields from the given literal string.
 func setStructFromLiteral(rStructVal reflect.Value, raw string) error {
 	n := skipSpaces(raw)
-
 	raw = raw[n:]
-	if raw == "" {
-		return fmt.Errorf("invalid struct value '%s'", raw)
-	}
 
 	if raw[0] != '{' {
-		return fmt.Errorf("expected {, but got '%s'", raw)
+		return fmt.Errorf("expected { at the beginning of value '%s'", raw)
 	}
 
 	raw = raw[1:]
@@ -322,21 +301,13 @@ func setStructFromLiteral(rStructVal reflect.Value, raw string) error {
 		n = skipSpaces(raw)
 		raw = raw[n:]
 
-		if len(raw) == 0 {
-			return fmt.Errorf("unterminated struct value, missing closing '}'")
-		}
-
-		if len(raw) == 1 {
-			if raw[0] != '}' {
-				return fmt.Errorf("unterminated struct value, missing closing '}'")
-			}
-
+		if len(raw) == 1 || raw[0] == '}' {
 			break
 		}
 
 		prop, l, scanErr := scanValue(keyType, raw)
 		if scanErr != nil {
-			return scanErr
+			return fmt.Errorf("invalid field name: %w", scanErr)
 		}
 
 		raw = raw[l:]
@@ -366,7 +337,7 @@ func setStructFromLiteral(rStructVal reflect.Value, raw string) error {
 
 		value, vLen, err := scanValue(valTyp, raw)
 		if err != nil {
-			return err
+			return fmt.Errorf("invalid field value: %w", err)
 		}
 
 		if fieldExists {
@@ -379,13 +350,11 @@ func setStructFromLiteral(rStructVal reflect.Value, raw string) error {
 		n = skipSpaces(raw)
 		raw = raw[n:]
 
-		if raw == "" {
-			return fmt.Errorf("unterminated struct value '%s'", raw)
-		}
-
 		if raw[0] == ',' {
 			raw = raw[1:]
 			continue
+		} else if raw[0] != '}' {
+			return fmt.Errorf("expected ',' between fields in '%s'", raw)
 		}
 	}
 
@@ -394,13 +363,10 @@ func setStructFromLiteral(rStructVal reflect.Value, raw string) error {
 
 // inferType infers the type of the given value string.
 func inferType(val string) (reflect.Type, error) {
-	i := 0
-	for i < len(val) && (val[i] == ' ' || val[i] == '\t') {
-		i++
-	}
+	skip := skipSpaces(val)
+	val = val[skip:]
 
-	val = val[i:]
-	if val == "" {
+	if val == "" || (len(val) >= 1 && val[0] == ':' || val[0] == ',') {
 		return nil, errors.New("cannot infer type from empty value")
 	}
 
@@ -452,9 +418,9 @@ func scanValue(typ reflect.Type, val string) (string, int, error) {
 	case reflect.Float32, reflect.Float64:
 		return scanNumber(val)
 	case reflect.Slice:
-		return scanSlice(val)
+		return scanCollection(val, '[', ']')
 	case reflect.Map, reflect.Struct:
-		return scanMap(val)
+		return scanCollection(val, '{', '}')
 	case reflect.Interface:
 		inferredType, err := inferType(val)
 		if err != nil {
@@ -494,7 +460,7 @@ func scanBool(val string) (string, int, error) {
 	i := 0
 	for i < len(val) {
 		c := val[i]
-		if c == ' ' || c == '\t' || c == ';' || c == ']' || c == '}' || c == ':' || c == ',' {
+		if c == ' ' || c == '\t' || c == ';' || c == '[' || c == ']' || c == '{' || c == '}' || c == ':' || c == ',' {
 			break
 		}
 		i++
@@ -539,53 +505,28 @@ func scanNumber(val string) (string, int, error) {
 	return item, i, nil
 }
 
-// scanSlice scans a slice literal from the given string.
-func scanSlice(val string) (string, int, error) {
-	if len(val) == 0 || val[0] != '[' {
-		return "", -1, errors.New("slice must start with '['")
+// scanCollection scans a collection literal (slice or map) from the given string.
+func scanCollection(val string, open, close byte) (string, int, error) {
+	if len(val) == 0 || val[0] != open {
+		return "", -1, fmt.Errorf("value must start with '%c'", open)
 	}
 
 	i := 1
-	bracketCount := 1
-	for i < len(val) && bracketCount > 0 {
-		if val[i] == '[' {
-			bracketCount++
-		} else if val[i] == ']' {
-			bracketCount--
+	depth := 1
+
+	for i < len(val) && depth > 0 {
+		switch val[i] {
+		case open:
+			depth++
+		case close:
+			depth--
 		}
 		i++
 	}
 
-	if bracketCount != 0 {
-		return "", -1, errors.New("unterminated slice, missing closing ']'")
+	if depth != 0 {
+		return "", -1, fmt.Errorf("unterminated value, missing closing '%c'", close)
 	}
 
-	item := val[:i]
-	return item, i, nil
-
-}
-
-// scanMap scans a map literal from the given string.
-func scanMap(val string) (string, int, error) {
-	if len(val) == 0 || val[0] != '{' {
-		return "", -1, errors.New("map must start with '{'")
-	}
-
-	i := 1
-	bracketCount := 1
-	for i < len(val) && bracketCount > 0 {
-		if val[i] == '{' {
-			bracketCount++
-		} else if val[i] == '}' {
-			bracketCount--
-		}
-		i++
-	}
-
-	if bracketCount != 0 {
-		return "", -1, errors.New("unterminated map, missing closing '}'")
-	}
-
-	item := val[:i]
-	return item, i, nil
+	return val[:i], i, nil
 }

@@ -131,7 +131,7 @@ func parseOptions(opts string, structPtr reflect.Value) error {
 			return fmt.Errorf("missing option key")
 		}
 
-		opt := val
+		optName := val
 		opts = opts[valLen:]
 		skip = skipSpaces(opts)
 		opts = opts[skip:]
@@ -142,21 +142,21 @@ func parseOptions(opts string, structPtr reflect.Value) error {
 			opts = opts[skip:]
 
 			if len(opts) == 0 {
-				return fmt.Errorf("missing value for option %q", opt)
+				return fmt.Errorf("missing value for option %q", optName)
 			}
 
-			val, valLen, err = scanOptValue(opts)
+			val, valLen, err = scanOptValue(optName, opts, structPtr)
 			if err != nil {
 				return err
 			}
 
-			if err = setOption(opt, val, structPtr); err != nil {
+			if err = setOption(optName, val, structPtr); err != nil {
 				return err
 			}
 
 			opts = opts[valLen:]
 		} else if len(opts) == 0 {
-			if err = setFlagOption(opt, structPtr); err != nil {
+			if err = setFlagOption(optName, structPtr); err != nil {
 				return err
 			}
 
@@ -171,7 +171,7 @@ func parseOptions(opts string, structPtr reflect.Value) error {
 		}
 
 		if opts[0] != ',' {
-			return fmt.Errorf("missing comma after option %q", opt)
+			return fmt.Errorf("missing comma after option %q", optName)
 		} else {
 			opts = opts[1:]
 		}
