@@ -1,4 +1,4 @@
-name: Run Tests
+name: Go
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
 
 jobs:
   test:
+    name: Run Tests and Upload Coverage
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
