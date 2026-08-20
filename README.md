@@ -19,7 +19,7 @@ and implementation overhead minimal.
 To install Tag, run the following command:
 
 ```bash
-go get github.com/codnect/tag
+go get go.codnect.io/tag
 ```
 
 ## Overview

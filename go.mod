@@ -1,4 +1,4 @@
-module codnect.io/tag
+module go.codnect.io/tag
 
 go 1.27.0
 
